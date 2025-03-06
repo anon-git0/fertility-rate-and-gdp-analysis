@@ -1,0 +1,231 @@
+---
+title: "A brief analysis of world fertility rate and GDP per capita data from 2022"
+author: "Ben Andrews"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+In this project, we aim to visualise and compare data on fertility rate and GDP per capita for different countries in the world, to see if they are correlated and to provide easily understandable diagrams showing where they are the highest and lowest in the world.
+
+## Data collection
+
+We collected data on fertility rate and GDP per capita of each country from the World Bank. The fertility rate data can be found at https://data.worldbank.org/indicator/SP.DYN.TFRT.IN, and the GDP data can be found at https://data.worldbank.org/indicator/NY.GDP.PCAP.CD.
+
+The datasets include columns with:
+
+1. Country name;
+2. ISO3 country code;
+3. Indicators of what the data is (e.g. fertility rate in the first dataset) and the code for this type of data (i.e. SP.DYN.TFRT.IN in the first dataset), which is the same in every row;
+4. The data from 1960 to 2023, in a different column for each year.
+
+Much of the data for 2023 is missing, so throughout this work, we will focus on the 2022 data.
+
+### Data cleaning
+
+There are many issues with the datasets that mean we will need to use data formatting and cleaning:
+
+1. The data starts on row 5. We will need to remove the first four rows (they contain only the data source and when it was last updated).
+2. We will only need the columns with the country names and 2022 data.
+3. Many rows contain things that are not countries, e.g. "Arab World", "Africa Western and Central", "Fragile and conflict affected situations". We will need to ignore these rows.
+
+Some values are missing (mainly in the GDP dataset) but we will simply not include these in  our plots, as there are not many and we do not have an ideal way to estimate the missing values from the rest of the data.
+
+```{r}
+# The first 4 rows of the imported csv files do not contain data.
+# skip = 4 skips importing the first 4 rows.
+fertility_data <- read.csv("fertility.csv", skip = 4)
+gdp_data <- read.csv("gdp_per_capita.csv", skip = 4)
+
+# Remove all columns except for the country name and the 2022 data.
+fertility_data <- fertility_data[, c(1, 67)]
+gdp_data <- gdp_data[, c(1, 67)]
+
+# Set up the column names.
+colnames(fertility_data)[1] <- "country"
+colnames(fertility_data)[2] <- "fertility_2022"
+colnames(gdp_data)[1] <- "country"
+colnames(gdp_data)[2] <- "gdp_2022"
+
+# Data cleaning - remove rows with things that are clearly not countries (e.g. groups of countries)
+# Note: 'africa ' is used rather than 'africa' to prevent the removal of South Africa.
+fertility_data <- fertility_data[!grepl("euro|asia|africa |world|demog|ida |income|small|coun|conflict|sahara|ibrd|class|oecd", fertility_data$country, ignore.case = TRUE), ]
+gdp_data <- gdp_data[!grepl("euro|asia|africa |world|demog|ida |income|small|coun|conflict|sahara|ibrd|class|oecd", gdp_data$country, ignore.case = TRUE), ]
+```
+
+After removing the non-country rows from the data, we are left with 220 rows containing sensible distinct countries and territories (I have chosen not to remove many of the non-UN members such as Aruba, as they describe distinct territory).
+
+## Visualisation: scatter plot
+
+We plot a scatter plot to visualise the relationship between fertility rate and GDP per capita.
+
+```{r}
+
+# Merge the two datasets into one, combining rows by country name.
+fert_gdp <- merge(fertility_data, gdp_data, by = "country")
+
+# Remove any rows with any N/A entries.
+fert_gdp <- na.omit(fert_gdp)
+
+#Scatter plot.
+plot(fert_gdp$fertility_2022, fert_gdp$gdp_2022,
+     main = "Fertility rate vs GDP per capita",
+     xlab = "Fertility rate", ylab = "GDP per capita")
+```
+
+It appears from the results that there are many countries with very high fertility rate (larger than 3) with poor GDP per capita, and some with very low fertility rate with very high GDP per capita. Despite the apparent moderate scatter in between (in the lower left) - more on this later in the log plot, this suggests a significant relationship between the two - it would be very unlikely to see many countries with high fertility and low GDP and not a single one with high fertility and a high GDP if they were not related, for example.
+
+## Pearson correlation and linear regression
+
+The results of a Pearson correlation between fertility rate and GDP show that there is likely a moderate relationship between them.
+```{r}
+# Pearson correlation for fertility rate versus GDP per capita.
+cor(fert_gdp$fertility_2022, fert_gdp$gdp_2022)
+```
+The value r = -0.447 suggests a moderate negative relationship, where as fertility rate increases, GDP per capita decreases.
+
+```{r}
+plot(fert_gdp$fertility_2022, fert_gdp$gdp_2022,
+     main = "Fertility rate vs GDP per capita",
+     xlab = "Fertility rate", ylab = "GDP per capita")
+
+# Use a linear regression model.
+linear_model <- lm(fert_gdp$gdp_2022 ~ fert_gdp$fertility_2022, data = fert_gdp)
+summary(linear_model)
+
+# Add linear model to plot.
+abline(linear_model, col = "red")
+```
+
+Plotting a linear model directly does suggest that fertility is significant (p < 0.001) but the model does not appear to be a very good fit to the data, as the line of best fit does not describe most of the data (seen on the left half of the diagram) very well.
+The problem may be caused by the fact that GDP varies very largely, and although there are a large amount of countries with a GDP per capita of less than 10,000 with a wide variety of fertility rates, there are also a significant amount with over 50,000 for example, and thus it is hard to fit a model. Using the natural logarithm of GDP per capita may help resolve the problem.
+
+### Linear regression with logarithm of GDP per capita
+
+```{r}
+plot(fert_gdp$fertility_2022, log(fert_gdp$gdp_2022),
+     main = "Fertility rate vs log GDP per capita",
+     xlab = "Fertility rate", ylab = "Log of GDP per capita")
+
+linear_model_log_gdp <- lm(log(fert_gdp$gdp_2022) ~ fert_gdp$fertility_2022, data = fert_gdp)
+summary(linear_model_log_gdp)
+
+# Add linear model to plot.
+abline(linear_model_log_gdp, col = "red")
+```
+
+This plot gives us a much more illuminating view of the situation. The original plot made it appear that, for example, once fertility rate rose above 3, there was not that much of a linear relationship between fertility and GDP any longer - rather, just a scattering of countries with high fertility and low GDP. This was because of the issue mentioned previously where even though these countries have GDP per capita varying among the low-mid thousands, this was not very apparent on the plot due to the scale of GDP from zero to over 150,000. The plot with the logarithm of GDP makes the truth a lot clearer, and the line of best fit seems to describe the data at least somewhat more effectively than before.
+
+Again, the model suggests that fertility is significant in the linear relationship (p < 0.001) and suggests a beta co-efficient of -0.910 for fertility against logarithm of GDP per capita.
+
+### Note on real-world meaning
+
+These results do not necessarily mean that one of a high fertility rate or a low GDP causes the other. Two examples of possibilities are:
+
+1. It is genuinely the case (high fertility rate causes poor GDP or poor GDP causes high fertility rate);
+2. High fertility rate is associated with factors such as high infant mortality and poor sex education, and these are factors that are actually caused by a poor GDP.
+
+## Interactive map visualisation
+
+I also created interactive maps with gradient colour coding for fertility rate and GDP per capita, with tooltips when countries are hovered over. I used the R library maps to get the co-ordinate data for the world map, and plotly to plot the interactive map.
+
+```{r, echo = TRUE, warning = FALSE, message = FALSE, results = 'hide'}
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(maps)
+
+# maps library contains coordinate data for the world.
+coordinates <- map_data("world")
+colnames(coordinates)[5] <- "country"
+```
+
+Unfortunately, the data from maps uses many different names for countries than the World Bank data, so we need to manually change the names of many countries to match. Then, we can merge the fertility and GDP data with the co-ordinate data, using a left join (not a merge, so that we do not delete any geographical data from the co-ordinates).
+
+```{r}
+
+# These countries don't have the same names in our World Bank data as they
+# do in the maps world data, so we change them to match.
+country_replacements <- c(
+  "United States" = "USA",
+  "United Kingdom" = "UK",
+  "Venezuela, RB" = "Venezuela",
+  "Cote d'Ivoire" = "Ivory Coast",
+  "Egypt, Arab Rep." = "Egypt",
+  "Congo, Dem. Rep." = "Democratic Republic of the Congo",
+  "Congo, Rep." = "Republic of Congo",
+  "Yemen, Rep." = "Yemen",
+  "Russian Federation" = "Russia",
+  "Turkiye" = "Turkey",
+  "Syrian Arab Republic" = "Syria",
+  "Iran, Islamic Rep." = "Iran",
+  "Viet Nam" = "Vietnam",
+  "Lao PDR" = "Laos",
+  "Kyrgyz Republic" = "Kyrgyzstan",
+  "Korea, Rep." = "South Korea",
+  "Czechia" = "Czech Republic",
+  "Slovak Republic" = "Slovakia",
+  "Gambia, The" = "Gambia",
+  "Eswatini" = "Swaziland",
+  "West Bank and Gaza" = "Palestine",
+  "Micronesia, Fed. Sts." = "Micronesia")
+
+# Function to apply the country name changes to the column named 'country'.
+replace_countries <- function(data) {
+  data %>%
+    mutate(country = recode(country, !!!country_replacements))}
+# !!! splices the vector.
+
+# Apply these changes to fertility and gdp per capita data.
+fertility_data <- replace_countries(fertility_data)
+gdp_data <- replace_countries(gdp_data)
+
+# We use left_join because we want to join fertility data whenever the country matches.
+# But if there is no match, we don't want to delete the coordinate data (so that countries
+# without available data still show up on the map.)
+coordinates <- left_join(coordinates, fertility_data, by = "country")
+coordinates <- left_join(coordinates, gdp_data, by = "country")
+```
+
+We will use logarithm of GDP when colour coding the map by GDP per capita, for similar reasons to in the linear regression section (e.g. countries with varying GDP in the low-mid thousands would show up with virtually the same colour and the variation would not be shown effectively).
+
+```{r}
+coordinates <- coordinates %>%
+  mutate(log_gdp_2022 = log(gdp_2022))
+```
+
+We are now ready to create the interactive maps!
+
+```{r, echo = TRUE, warning = FALSE, message = FALSE, results = "asis"}
+# Build the map.
+# geom_polygon takes long and lat as its first arguments because longitude is the x axis
+# and latitude the y axis for the map.
+# group=group: regions with the same colour/coordinate data are grouped together.
+# fill = fertility_2022 colours the countries by their fertility rate.
+# Then we define a tooltip showing the country's name, fertility rate and GDP p.c.
+map_fert <- ggplot(coordinates) + 
+  geom_polygon(aes(long,lat, group=group, fill=fertility_2022,text = paste("Country: ", country, "\nFertility rate: ", fertility_2022, "\nGDP per capita: ", gdp_2022)),
+               color = "black",
+               linewidth = 0.1)+
+  scale_fill_gradient(low = "blue", high = "red", name = "Fertility rate") +
+  labs(title = "Fertility rate by country", x = "Longitude", y = "Latitude")
+
+fert_out <- ggplotly(map_fert, tooltip = "text")
+fert_out
+
+map_gdp <- ggplot(coordinates) + 
+  geom_polygon(aes(long,lat, group=group, fill=log_gdp_2022,text = paste("Country: ", country, "\nFertility rate: ", fertility_2022, "\nGDP per capita: ", gdp_2022)),
+               color = "black",
+               linewidth = 0.1)+
+  scale_fill_gradient(low = "red", high = "blue", name = "Log GDP\nper capita") +
+  labs(title = "Log of GDP per capita by country", x = "Longitude", y = "Latitude")
+
+gdp_out <- ggplotly(map_gdp, tooltip = "text")
+gdp_out
+```
+
+These visualisations allow us to see which parts of the world have the most countries with high fertility and low GDP (e.g. central Africa), and that these are similar for both.
