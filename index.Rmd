@@ -1,6 +1,5 @@
 ---
 title: "A brief analysis of world fertility rate and GDP per capita data from 2022"
-author: "Benjamin Andrews"
 output: html_document
 ---
 
